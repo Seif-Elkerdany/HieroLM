@@ -85,12 +85,17 @@ class HieroLM(nn.Module):
 
     @property
     def device(self) -> torch.device:
-        return self.model_embeddings.source.weight.device
+        return self.model_embeddings.weight.device
 
     @staticmethod
     def load(model_path: str):
-        params = torch.load(model_path, map_location=lambda storage, loc: storage)
-        args = params['args']
+        params = torch.load(
+            model_path,
+            map_location=lambda storage, loc: storage,
+            weights_only=False,  
+        )
+
+        args = params['args']  # dict: embed_size, hidden_size, dropout_rate
         model = HieroLM(vocab=params['vocab'], **args)
         model.load_state_dict(params['state_dict'])
         return model
