@@ -22,6 +22,8 @@ from sklearn.metrics import f1_score
 
 from torch.utils.tensorboard import SummaryWriter
 
+import time
+
 def evaluate_ppl(model, dev_data, batch_size, device):
     was_training = model.training
     model.eval()
@@ -317,4 +319,8 @@ def main():
 
 
 if __name__ == '__main__':
+    
+    start = time.time()
     main()
+    end = time.time()
+    print(f"Total Training time:{end - start}")

@@ -23,8 +23,8 @@ class HieroLM(nn.Module):
         self.dropout_rate = dropout_rate
         self.vocab = vocab
 
-        self.encoder = nn.LSTM(embed_size, hidden_size, bias=True, bidirectional=False)
-        self.target_vocab_projection = nn.Linear(hidden_size,len(vocab.vocab),bias=False)
+        self.encoder = nn.LSTM(embed_size, hidden_size, bias=True, bidirectional=True)
+        self.target_vocab_projection = nn.Linear(2 * hidden_size, len(vocab.vocab), bias=False)
 
     def forward(self, source: List[List[str]], target: List[List[str]], device) -> torch.Tensor:
         # Compute sentence lengths
