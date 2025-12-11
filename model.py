@@ -23,7 +23,7 @@ class HieroLM(nn.Module):
         self.dropout_rate = dropout_rate
         self.vocab = vocab
 
-        self.encoder = nn.LSTM(embed_size, hidden_size, bias=True, bidirectional=False)
+        self.encoder = nn.LSTM(embed_size, hidden_size, num_layers=2, bias=True, bidirectional=False)
         self.target_vocab_projection = nn.Linear(hidden_size, len(vocab.vocab), bias=False)
 
         self.target_vocab_projection.weight = self.model_embeddings.weight
