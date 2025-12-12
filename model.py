@@ -22,8 +22,15 @@ class HieroLM(nn.Module):
         self.hidden_size = hidden_size
         self.dropout_rate = dropout_rate
         self.vocab = vocab
+        self.num_layers = 4
 
-        self.encoder = nn.LSTM(embed_size, hidden_size, num_layers=2, bias=True, bidirectional=False)
+        self.encoder_layers = nn.ModuleList()
+        for i in range(self.num_layers):
+            input_dim = embed_size if i == 0 else hidden_size
+            self.encoder_layers.append(
+                nn.LSTM(input_dim, hidden_size, bias=True, bidirectional=False)
+            )
+        self.dropout = nn.Dropout(self.dropout_rate)
         self.target_vocab_projection = nn.Linear(hidden_size, len(vocab.vocab), bias=False)
         
         self.layer_norm_input = nn.LayerNorm(embed_size)
@@ -38,50 +45,72 @@ class HieroLM(nn.Module):
         Xavier initialization for Input weights
         Constant 1 initialization for Forget Gate bias
         """
-        for name, param in self.encoder.named_parameters():
-            if 'weight_hh' in name:
-                # Orthogonal init for recurrent weights
-                nn.init.orthogonal_(param)
-            elif 'weight_ih' in name:
-                # Xavier/Glorot init for input weights
-                nn.init.xavier_uniform_(param)
-            elif 'bias' in name:
-                # Initialize all biases to 0 first
-                nn.init.constant_(param, 0.0)
-                
-                # Set Forget Gate bias to 1.0
-                # The bias tensor shape is (4 * hidden_size)
-                n = self.hidden_size
-                param.data[n:2*n].fill_(1.0)
+        # We now iterate over the ModuleList
+        for layer in self.encoder_layers:
+            for name, param in layer.named_parameters():
+                if 'weight_hh' in name:
+                    nn.init.orthogonal_(param)
+                elif 'weight_ih' in name:
+                    nn.init.xavier_uniform_(param)
+                elif 'bias' in name:
+                    nn.init.constant_(param, 0.0)
+                    n = self.hidden_size
+                    param.data[n:2*n].fill_(1.0)
 
     def forward(self, source: List[List[str]], target: List[List[str]], device) -> torch.Tensor:
-        # Compute sentence lengths
         source_lengths = [len(s) for s in source]
-
-        # Convert list of lists into tensors
-        source_padded = self.vocab.vocab.to_input_tensor(source, device=device)  # Tensor: (src_len, b)
-        target_padded = self.vocab.vocab.to_input_tensor(target, device=device)  # Tensor: (tgt_len, b)
+        source_padded = self.vocab.vocab.to_input_tensor(source, device=device)
+        target_padded = self.vocab.vocab.to_input_tensor(target, device=device)
 
         enc_hiddens = self.encode(source_padded, source_lengths)
 
         P = F.log_softmax(self.target_vocab_projection(enc_hiddens), dim=-1)
 
-        # Zero out, probabilities for which we have nothing in the target text
         target_masks = (target_padded != self.vocab.vocab['<pad>']).float()
 
-        # Compute log probability of generating true target words
         target_gold_words_log_prob = torch.gather(P, index=target_padded.unsqueeze(-1), dim=-1).squeeze(
             -1) * target_masks
         scores = target_gold_words_log_prob.sum(dim=0)
         return scores
 
-    def encode(self, source_padded: torch.Tensor, source_lengths: List[int]) -> Tuple[
-        torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    def encode(self, source_padded: torch.Tensor, source_lengths: List[int]) -> torch.Tensor:
+        """
+        Manual loop over LSTM layers to implement Residual (Skip) Connections
+        """
         X = self.model_embeddings(source_padded)
         X = self.layer_norm_input(X)
-        enc_hiddens, (last_hidden, last_cell) = self.encoder(nn.utils.rnn.pack_padded_sequence(X,source_lengths))
-        enc_hiddens = nn.utils.rnn.pad_packed_sequence(enc_hiddens)[0]
-        enc_hiddens = self.layer_norm_output(enc_hiddens)
+        X = self.dropout(X)
+
+        # We need to maintain the packed structure for efficiency,
+        # but we must unpack to do the addition (Residual Connection), then repack.
+        
+        current_input = X
+        
+        for i, layer in enumerate(self.encoder_layers):
+            # 1. Pack
+            packed_input = nn.utils.rnn.pack_padded_sequence(current_input, source_lengths, enforce_sorted=False)
+            
+            # 2. Pass through LSTM layer
+            packed_output, (hidden, cell) = layer(packed_input)
+            
+            # 3. Unpack
+            output, _ = nn.utils.rnn.pad_packed_sequence(packed_output)
+            
+            # 4. Apply Dropout
+            output = self.dropout(output)
+
+            # 5. Residual Connection (Skip Connection)
+            # We can only add if shapes match. 
+            # Usually Layer 0 changes size (Embed -> Hidden), so we skip residual there.
+            # Layers 1+ are Hidden -> Hidden, so we add residual.
+            if i > 0 or (self.embed_size == self.hidden_size):
+                output = output + current_input
+            
+            # Update current_input for the next iteration
+            current_input = output
+
+        # Final LayerNorm
+        enc_hiddens = self.layer_norm_output(current_input)
 
         return enc_hiddens
 
