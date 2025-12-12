@@ -25,8 +25,34 @@ class HieroLM(nn.Module):
 
         self.encoder = nn.LSTM(embed_size, hidden_size, num_layers=2, bias=True, bidirectional=False)
         self.target_vocab_projection = nn.Linear(hidden_size, len(vocab.vocab), bias=False)
+        
+        self.layer_norm_input = nn.LayerNorm(embed_size)
+        self.layer_norm_output = nn.LayerNorm(hidden_size)
 
         self.target_vocab_projection.weight = self.model_embeddings.weight
+        self.init_weights()
+
+    def init_weights(self):
+        """
+        Orthogonal initialization for Recurrent weights
+        Xavier initialization for Input weights
+        Constant 1 initialization for Forget Gate bias
+        """
+        for name, param in self.encoder.named_parameters():
+            if 'weight_hh' in name:
+                # Orthogonal init for recurrent weights
+                nn.init.orthogonal_(param)
+            elif 'weight_ih' in name:
+                # Xavier/Glorot init for input weights
+                nn.init.xavier_uniform_(param)
+            elif 'bias' in name:
+                # Initialize all biases to 0 first
+                nn.init.constant_(param, 0.0)
+                
+                # Set Forget Gate bias to 1.0
+                # The bias tensor shape is (4 * hidden_size)
+                n = self.hidden_size
+                param.data[n:2*n].fill_(1.0)
 
     def forward(self, source: List[List[str]], target: List[List[str]], device) -> torch.Tensor:
         # Compute sentence lengths
@@ -52,8 +78,10 @@ class HieroLM(nn.Module):
     def encode(self, source_padded: torch.Tensor, source_lengths: List[int]) -> Tuple[
         torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         X = self.model_embeddings(source_padded)
+        X = self.layer_norm_input(X)
         enc_hiddens, (last_hidden, last_cell) = self.encoder(nn.utils.rnn.pack_padded_sequence(X,source_lengths))
         enc_hiddens = nn.utils.rnn.pad_packed_sequence(enc_hiddens)[0]
+        enc_hiddens = self.layer_norm_output(enc_hiddens)
 
         return enc_hiddens
 
