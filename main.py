@@ -140,7 +140,13 @@ def train(args):
 
     model = model.to(device)
     lr = args.lr
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min',      
+        factor=0.5,       
+        patience=1
+    )
 
     num_trial = 0
     train_iter = patience = cum_loss = report_loss = cum_tgt_words = report_tgt_words = 0
@@ -216,7 +222,7 @@ def train(args):
                 
                 valid_metric = -dev_ppl
                 writer.add_scalar("perplexity/val", dev_ppl, train_iter)
-
+                scheduler.step(dev_ppl)
                 print('validation: iter %d, dev. ppl %f, dev. accuracy %f, dev. f1 %f' % (train_iter, dev_ppl, dev_accuracy, dev_f1), file=sys.stderr)
 
                 is_better = len(hist_valid_scores) == 0 or valid_metric > max(hist_valid_scores)

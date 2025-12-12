@@ -15,7 +15,7 @@ def parse_args():
     parser.add_argument('--model_save_path', default="model.bin", type=str, help='path')
     parser.add_argument('--model_path', default="model.bin", type=str, help='path')
     parser.add_argument('--vocab_file', default="vocab.json", type=str, help='path')
-    parser.add_argument('--dropout', default=0, type=float, help='rate for edge dropout')
+    parser.add_argument('--dropout', default=0.1, type=float, help='rate for edge dropout')
     parser.add_argument('--embed_size', default=1024, type=int, help='embed_size')
     parser.add_argument('--hidden_size', default=1024, type=int, help='hidden_size')
     parser.add_argument('--uniform_init', default=0.1, type=float, help='init')

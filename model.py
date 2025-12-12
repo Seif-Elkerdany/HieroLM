@@ -28,9 +28,8 @@ class HieroLM(nn.Module):
         for i in range(self.num_layers):
             input_dim = embed_size if i == 0 else hidden_size
             self.encoder_layers.append(
-                nn.LSTM(input_dim, hidden_size, bias=True, bidirectional=False)
+                nn.LSTM(input_dim, hidden_size, bias=True, bidirectional=False, dropout=self.dropout_rate)
             )
-        self.dropout = nn.Dropout(self.dropout_rate)
         self.target_vocab_projection = nn.Linear(hidden_size, len(vocab.vocab), bias=False)
         
         self.layer_norm_input = nn.LayerNorm(embed_size)
@@ -79,7 +78,6 @@ class HieroLM(nn.Module):
         """
         X = self.model_embeddings(source_padded)
         X = self.layer_norm_input(X)
-        X = self.dropout(X)
 
         # We need to maintain the packed structure for efficiency,
         # but we must unpack to do the addition (Residual Connection), then repack.
@@ -95,9 +93,6 @@ class HieroLM(nn.Module):
             
             # 3. Unpack
             output, _ = nn.utils.rnn.pad_packed_sequence(packed_output)
-            
-            # 4. Apply Dropout
-            output = self.dropout(output)
 
             # 5. Residual Connection (Skip Connection)
             # We can only add if shapes match. 
